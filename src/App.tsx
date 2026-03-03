@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { GoogleGenAI } from "@google/genai";
 import { 
   RefreshCw, 
   Lock, 
@@ -156,26 +157,46 @@ export default function App() {
     
     try {
       const symbols = INITIAL_STOCKS.filter(s => s.type === 'equity').map(s => s.symbol).join(", ");
-      
-      const response = await fetch("/api/fetch-prices", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ symbols })
-      });
+      let data: Record<string, number> = {};
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+      // HYBRID STRATEGY:
+      // 1. If we have a frontend API key (AI Studio Preview), use it directly for speed.
+      // 2. Otherwise (Vercel/Production), call our secure backend API.
+      const frontendApiKey = process.env.GEMINI_API_KEY;
+
+      if (frontendApiKey) {
+        const ai = new GoogleGenAI({ apiKey: frontendApiKey });
+        const response = await ai.models.generateContent({
+          model: "gemini-3-flash-preview",
+          contents: `Return a JSON object with the latest market prices in INR for these symbols: ${symbols}. 
+          Include 'BOND_UGRO' at ~19028.
+          Format: { "SYMBOL": price_as_number }. Return ONLY the JSON.`,
+          config: { responseMimeType: "application/json" }
+        });
+        const text = response.text;
+        if (!text) throw new Error("Empty response from AI");
+        data = JSON.parse(text);
+      } else {
+        // Fallback to backend API (Vercel path)
+        const response = await fetch("/api/fetch-prices", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ symbols })
+        });
+        if (!response.ok) {
+          const errData = await response.json();
+          throw new Error(errData.error || "Backend fetch failed");
+        }
+        data = await response.json();
       }
 
-      const data = await response.json();
       if (Object.keys(data).length > 0) {
         setLtp(prev => ({ ...prev, ...data }));
         setLastUpdated(new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit" }));
       }
     } catch (err: any) {
       console.error("Error fetching prices:", err);
-      setFetchError("Live fetch failed — showing last available prices.");
+      setFetchError(err.message || "Live fetch failed.");
     } finally {
       setLoading(false);
       isFetching.current = false;
@@ -231,9 +252,25 @@ export default function App() {
               ◈ KULDEEP RAVISHANKAR · FULL PORTFOLIO
             </div>
             <h1 className="text-[26px] font-semibold text-[#f1f5f9] tracking-tight leading-none mb-2">Investment Tracker</h1>
-            <div className="flex items-center gap-2 text-[11px] text-[#475569]">
-              <div className={`w-1.5 h-1.5 rounded-full ${loading ? 'bg-blue-500 animate-pulse' : 'bg-[#34d399]'}`} />
-              Updated: {lastUpdated}
+            <div className="flex items-center gap-3 text-[11px] text-[#475569]">
+              <div className="flex items-center gap-2">
+                <div className={`w-1.5 h-1.5 rounded-full ${loading ? 'bg-blue-500 animate-pulse' : 'bg-[#34d399]'}`} />
+                Updated: {lastUpdated}
+              </div>
+              {fetchError && (
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-1.5 text-red-400 bg-red-400/10 px-2 py-0.5 rounded border border-red-400/20">
+                    <AlertTriangle className="w-3 h-3" />
+                    {fetchError}
+                  </div>
+                  <button 
+                    onClick={() => fetchPrices()}
+                    className="text-blue-400 hover:text-blue-300 underline underline-offset-2 cursor-pointer"
+                  >
+                    Retry
+                  </button>
+                </div>
+              )}
             </div>
           </div>
           <button 
@@ -443,6 +480,5 @@ export default function App() {
         </div>
       </div>
     </div>
-    // This is the end, hope you enjoy :)
   );
 }
