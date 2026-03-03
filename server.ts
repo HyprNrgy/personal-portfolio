@@ -20,50 +20,36 @@ async function startServer() {
   app.post("/api/fetch-prices", async (req, res) => {
     try {
       const { symbols } = req.body;
-      const apiKey = process.env.GEMINI_API_KEY;
+      const apiKey = (process.env.GEMINI_API_KEY || process.env.API_KEY)?.trim();
       
       if (!apiKey) {
-        console.error("GEMINI_API_KEY is not set in environment variables.");
-        return res.status(500).json({ error: "Server configuration error: API Key missing." });
+        console.error("No API key found in GEMINI_API_KEY or API_KEY environment variables");
+        return res.status(500).json({ error: "API Key missing on server." });
       }
 
       const ai = new GoogleGenAI({ apiKey });
       
-      let response;
-      try {
-        // Primary attempt with Google Search grounding
-        response = await ai.models.generateContent({
-          model: "gemini-3-flash-preview",
-          contents: `Return a JSON object with the latest market prices in INR for these symbols: ${symbols}. 
-          Also include a price for 'BOND_UGRO' which is a corporate bond (current value is roughly 19028).
-          Format: { "SYMBOL": price_as_number }. Return ONLY the JSON.`,
-          config: {
-            responseMimeType: "application/json",
-            tools: [{ googleSearch: {} }]
-          }
-        });
-      } catch (searchErr) {
-        console.warn("Search tool failed, falling back to standard generation:", searchErr);
-        // Fallback attempt without tools
-        response = await ai.models.generateContent({
-          model: "gemini-3-flash-preview",
-          contents: `Return a JSON object with the latest market prices in INR for these symbols: ${symbols}. 
-          Also include a price for 'BOND_UGRO' which is a corporate bond (current value is roughly 19028).
-          Format: { "SYMBOL": price_as_number }. Return ONLY the JSON.`,
-          config: { responseMimeType: "application/json" }
-        });
-      }
+      // Using gemini-2.0-flash for speed
+      const response = await ai.models.generateContent({
+        model: "gemini-2.0-flash",
+        contents: `Return a JSON object with the latest market prices in INR for these symbols: ${symbols}. 
+        Include 'BOND_UGRO' at ~19028.
+        Format: { "SYMBOL": price_as_number }. Return ONLY the JSON.`,
+        config: {
+          responseMimeType: "application/json",
+        }
+      });
 
       const text = response.text;
       if (!text) {
-        throw new Error("Empty response from AI model.");
+        throw new Error("Empty response from AI");
       }
 
       const data = JSON.parse(text);
       res.json(data);
     } catch (error: any) {
       console.error("Gemini API Error:", error);
-      res.status(500).json({ error: error.message || "Failed to fetch prices from AI service." });
+      res.status(500).json({ error: error.message || "Failed to fetch prices." });
     }
   });
 
