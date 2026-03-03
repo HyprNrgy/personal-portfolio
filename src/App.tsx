@@ -443,5 +443,6 @@ export default function App() {
         </div>
       </div>
     </div>
+    // This is the end, hope you enjoy :)
   );
 }
