@@ -4,7 +4,6 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { GoogleGenAI } from "@google/genai";
 import { 
   RefreshCw, 
   Lock, 
@@ -156,40 +155,26 @@ export default function App() {
     setFetchError(null);
     
     try {
-      const apiKey = process.env.GEMINI_API_KEY;
-      if (!apiKey) throw new Error("API Key missing");
-
-      const ai = new GoogleGenAI({ apiKey });
       const symbols = INITIAL_STOCKS.filter(s => s.type === 'equity').map(s => s.symbol).join(", ");
       
-      let response;
-      try {
-        response = await ai.models.generateContent({
-          model: "gemini-3-flash-preview",
-          contents: `Return a JSON object with the latest market prices in INR for these symbols: ${symbols}. 
-          Also include a price for 'BOND_UGRO' which is a corporate bond (current value is roughly 19028).
-          Format: { "SYMBOL": price_as_number }. Return ONLY the JSON.`,
-          config: {
-            responseMimeType: "application/json",
-            tools: [{ googleSearch: {} }]
-          }
-        });
-      } catch (err) {
-        response = await ai.models.generateContent({
-          model: "gemini-3-flash-preview",
-          contents: `Return a JSON object with the latest market prices in INR for these symbols: ${symbols}. 
-          Also include a price for 'BOND_UGRO' which is a corporate bond (current value is roughly 19028).
-          Format: { "SYMBOL": price_as_number }. Return ONLY the JSON.`,
-          config: { responseMimeType: "application/json" }
-        });
+      const response = await fetch("/api/fetch-prices", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ symbols })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
       }
 
-      const data = JSON.parse(response.text || "{}");
+      const data = await response.json();
       if (Object.keys(data).length > 0) {
         setLtp(prev => ({ ...prev, ...data }));
         setLastUpdated(new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit" }));
       }
     } catch (err: any) {
+      console.error("Error fetching prices:", err);
       setFetchError("Live fetch failed — showing last available prices.");
     } finally {
       setLoading(false);
