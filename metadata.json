@@ -1,0 +1,5 @@
+{
+  "name": "Investment Tracker",
+  "description": "A secure, responsive dashboard to track stock and bond investments with live price updates.",
+  "requestFramePermissions": []
+}
